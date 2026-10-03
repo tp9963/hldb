@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>H30269 红利低波指数 · 趋势与估值观察</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: #e9f3ea;   /* 护眼绿色背景 */
+    color: #1f2937;
+    padding: 20px 24px 40px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #5b6b5e; margin-bottom: 16px; }
+
+  /* ===== 指标卡片 ===== */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .card .label { font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+  .card .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .card .value.status-danger  { color: #dc2626; }
+  .card .value.status-low     { color: #ea580c; }
+  .card .value.status-fair    { color: #2563eb; }
+  .card .value.status-high    { color: #65a30d; }
+  .card .value.status-chance  { color: #059669; }
+
+  /* ===== 时间范围按钮 ===== */
+  .range-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .range-bar .range-label { font-size: 13px; color: #5b6b5e; margin-right: 4px; }
+  .range-btn {
+    border: 1px solid #c9d6cb;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    padding: 5px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .range-btn:hover { border-color: #2563eb; color: #2563eb; }
+  .range-btn.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+  }
+
+  /* ===== 图表容器（两图高度严格一致） ===== */
+  .chart-box {
+    background: #fff;
+    border-radius: 10px;
+    padding: 14px 10px 6px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 16px;
+  }
+  .chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    padding: 0 10px 6px;
+  }
+  #chartMain { width: 100%; height: 500px; }
+  #chartYield { width: 100%; height: 500px; }
+
+  .note {
+    font-size: 12px;
+    color: #9ca3af;
+    line-height: 1.8;
+    padding: 6px 10px 8px;
+    border-top: 1px dashed #e5e7eb;
+  }
+  .error-box {
+    background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+    border-radius: 8px; padding: 16px; font-size: 14px; display: none;
+  }
+  .loading-tip {
+    background: #fff; border-radius: 10px; padding: 40px 16px;
+    text-align: center; color: #6b7280; font-size: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 16px;
+  }
+  #chartMain, #chartYield { touch-action: pan-y; }  /* 纵向留给页面滚动，横向/双指交给图表缩放 */
+
+  /* ===== 手机端适配 ===== */
+  @media (max-width: 640px) {
+    body { padding: 12px 10px 28px; }
+    h1 { font-size: 18px; }
+    #chartMain { height: 420px; }
+    #chartYield { height: 420px; }
+    .range-bar { flex-wrap: wrap; }
+    .range-btn {
+      padding: 10px 18px;      /* 保证最小触控区域 44×44px */
+      min-height: 44px;
+      min-width: 64px;
+      font-size: 14px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .card .value { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>H30269 红利低波指数 · 趋势与估值观察</h1>
+  <div class="subtitle">长期趋势通道 + 股息率估值分位 · 数据每日收盘后更新</div>
+
+  <!-- 指标卡片 -->
+  <div class="cards" id="cards"></div>
+
+  <!-- 时间范围选择 -->
+  <div class="range-bar">
+    <span class="range-label">时间范围：</span>
+    <button class="range-btn" data-years="3">近3年</button>
+    <button class="range-btn" data-years="5">近5年</button>
+    <button class="range-btn" data-years="10">近10年</button>
+    <button class="range-btn active" data-years="0">全部</button>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+  <div class="loading-tip" id="loadingTip">数据加载中，请稍候…</div>
+
+  <!-- 上图：指数点位主趋势通道 -->
+  <div class="chart-box">
+    <div class="chart-title">指数点位 · 对数回归通道（±1σ / ±2σ）</div>
+    <div id="chartMain"></div>
+    <div class="note">
+      说明：紫色阴影 = 高性价比区间（分位 ≥ 75 且跌破 -1σ，后端已算好，前端直接按布尔值渲染）；
+      通道四区间：+1σ~+2σ 橙红、中轨~+1σ 海蓝、-1σ~中轨 青绿、-2σ~-1σ 紫罗兰，边界线为对应色 2px 实线。
+      所有数值（回归、σ、分位、阴影条件）均随每日收盘数据在后端自动重算，前端直接渲染。
+    </div>
+  </div>
+
+  <!-- 下图：股息率历史曲线 + 动态分位色块 -->
+  <div class="chart-box">
+    <div class="chart-title">股息率（TTM）历史曲线与分位区间</div>
+    <div id="chartYield"></div>
+    <div class="note">
+      分位说明：机会区 &gt; 75%｜偏高 60-75%｜合理 40-60%｜偏低 25-40%｜危险区 &lt; 25%
+      （分位为近 10 年滚动窗口计算；色块边界与阈值线取自 meta.thresholds 固定值，不随缩放改变）。
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  /* ---------- 统一分位标准（全站唯一口径） ---------- */
+  var ZONE_CFG = { danger: 25, low: 40, fair_high: 60, high: 75 };
+
+  /* ---------- 统一悬浮小白点样式（白填充 + 深边框，深/浅曲线上都清晰） ---------- */
+  var hoverPointStyle = { color: '#fff', borderColor: '#333', borderWidth: 1.5 };
+
+  function zoneOf(p) {
+    if (p >= ZONE_CFG.high) return '机会区';
+    if (p >= ZONE_CFG.fair_high) return '偏高';
+    if (p >= ZONE_CFG.low) return '合理';
+    if (p >= ZONE_CFG.danger) return '偏低';
+    return '危险区';
+  }
+
+  var statusClassMap = {
+    '危险区': 'status-danger',
+    '偏低': 'status-low',
+    '合理': 'status-fair',
+    '偏高': 'status-high',
+    '机会区': 'status-chance'
+  };
+  var STATUS_CLASSES = 'status-danger status-low status-fair status-high status-chance';
+
+  // 动态更新表头“股息率状态”卡片（文字 + 颜色类）
+  function updateStatusCard(status) {
+    var el = document.getElementById('statusValue');
+    if (!el) return;
+    el.textContent = status;
+    el.className = 'value ' + (statusClassMap[status] || '');
+  }
+
+  var chartMain = echarts.init(document.getElementById('chartMain'));
+  var chartYield = echarts.init(document.getElementById('chartYield'));
+  chartMain.showLoading();
+  chartYield.showLoading();
+
+  fetch('data.json')
+    .then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function (json) {
+      hideLoadingTip();
+      render(json);
+    })
+    .catch(function (err) {
+      hideLoadingTip();
+      chartMain.hideLoading();
+      chartYield.hideLoading();
+      var box = document.getElementById('errorBox');
+      box.style.display = 'block';
+      box.textContent = 'data.json 加载失败：' + err.message +
+        '。请确认 data.json 与 index.html 位于同一目录，且通过 HTTP 静态服务器访问（而非直接双击打开文件）。';
+    });
+
+  function hideLoadingTip() {
+    var tip = document.getElementById('loadingTip');
+    if (tip) tip.style.display = 'none';
+  }
+
+  function render(json) {
+    var meta = json.meta;
+    var data = json.data;
+
+    var dates = data.map(function (d) { return d.date; });
+    var closes = data.map(function (d) { return d.close; });
+    var yields = data.map(function (d) { return d.dividend_yield_ttm; });
+    var regMid = data.map(function (d) { return d.reg_mid; });
+    var regUpper = data.map(function (d) { return d.reg_upper; });
+    var regLower = data.map(function (d) { return d.reg_lower; });
+    function d2(v) { return (v === null || v === undefined || isNaN(v)) ? null : v; }
+    var has2Sigma = data.length > 0 && d2(data[0].reg_upper_2) !== null && d2(data[0].reg_lower_2) !== null;
+    var regUpper2 = data.map(function (d) { return d.reg_upper_2; });
+    var regLower2 = data.map(function (d) { return d.reg_lower_2; });
+
+    /* 通道填充用的差值带（仅为 stack 渲染做减法，不涉及回归/分位计算） */
+    var bandInnerUpper = data.map(function (d) { return d.reg_upper - d.reg_mid; });   // 中轨 → +1σ
+    var bandInnerLower = data.map(function (d) { return d.reg_mid - d.reg_lower; });   // -1σ → 中轨
+    var bandOuterUpper = has2Sigma ? data.map(function (d) { return d.reg_upper_2 - d.reg_upper; }) : null; // +1σ → +2σ
+    var bandOuterLower = has2Sigma ? data.map(function (d) { return d.reg_lower - d.reg_lower_2; }) : null; // -2σ → -1σ
+
+    /* ---------- 指标卡片 ---------- */
+    renderCards(meta);
+
+    /* ---------- 条件阴影：合并连续 true 区间为 markArea（直接使用后端布尔值） ---------- */
+    var shadowAreas = [];
+    var rangeStart = null;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i].shadow_condition) {
+        if (rangeStart === null) rangeStart = data[i].date;
+      } else if (rangeStart !== null) {
+        shadowAreas.push([{ xAxis: rangeStart }, { xAxis: data[i - 1].date }]);
+        rangeStart = null;
+      }
+    }
+    if (rangeStart !== null) {
+      shadowAreas.push([{ xAxis: rangeStart }, { xAxis: data[data.length - 1].date }]);
+    }
+
+    /* ---------- 固定分位阈值（取自 meta.thresholds 的 yield 值，全站唯一数据源） ---------- */
+    var th = meta.thresholds;
+    var fixedYieldValues = {
+      danger: th.danger.yield,
+      low: th.low.yield,
+      fair_high: th.fair_high.yield,
+      high: th.high.yield
+    };
+
+    var latestYield = meta.latest.dividend_yield_ttm;
+
+    // 阈值线样式（与五区色块同色系）：机会 粗虚线｜偏高/偏低 细虚线｜危险 粗虚线
+    var ylStyles = {
+      high:      { color: '#8E44AD', width: 3, type: 'dashed', name: '机会阈值(75%)' },
+      fair_high: { color: '#16A085', width: 1, type: 'dashed', name: '偏高阈值(60%)' },
+      low:       { color: '#2980B9', width: 1, type: 'dashed', name: '偏低阈值(40%)' },
+      danger:    { color: '#D35400', width: 3, type: 'dashed', name: '危险阈值(25%)' }
+    };
+
+    // 分位阈值线 → 独立 line 系列（markLine 无法在悬停时显示指示点，改用系列后可统一小白点）
+    var thSeriesOrder = ['high', 'fair_high', 'low', 'danger'];   // 高 → 低：机会 → 偏高 → 偏低 → 危险
+
+    function fillData(value) {
+      return yields.map(function () { return value; });
+    }
+
+    function makeThresholdSeries(key, value) {
+      return {
+        name: ylStyles[key].name,
+        type: 'line',
+        data: fillData(value),
+        showSymbol: false,   // 悬停时自动显示圆点；true 会让 2000+ 个白点常驻糊住虚线
+        symbol: 'circle',
+        symbolSize: 6,
+        large: false,
+        progressive: 200,
+        progressiveThreshold: 3000,
+        lineStyle: { color: ylStyles[key].color, width: ylStyles[key].width, type: ylStyles[key].type },
+        itemStyle: hoverPointStyle,
+        emphasis: { focus: 'series', disabled: false },
+        z: 4
+      };
+    }
+
+    // 最新股息率：白色实心水平线（文字改用 graphic 组件放在 Y 轴左侧，不再遮挡曲线）
+    function makeLatestLine() {
+      return [{
+        yAxis: latestYield,
+        lineStyle: { color: '#ffffff', type: 'solid', width: 2 },
+        symbol: ['none', 'circle'],
+        symbolSize: [0, 8],
+        label: { show: false }
+      }];
+    }
+
+    // 五区色块（右侧留白区圆角标签；过窄的区间自动隐藏标签防重叠）
+    var yieldSpan = (function () {
+      var mn = Math.min.apply(null, yields), mx = Math.max.apply(null, yields);
+      return mx - mn;
+    })();
+    var LABEL_MIN_SPAN = yieldSpan * 0.05;   // 区间高度小于全距 5% 时不显示文字
+
+    function makeZones(values) {
+      var Y_MIN = -100, Y_MAX = 100;   // 远大于股息率实际范围，铺满上下边缘
+      function zone(v1, v2, color, name, labelColor) {
+        var showLabel = (v2 - v1) >= LABEL_MIN_SPAN;
+        return [
+          { yAxis: v1, itemStyle: { color: color },
+            label: {
+              show: showLabel,
+              position: 'right',          // 固定在图表最右侧 grid.right 留白区内
+              distance: 4,
+              color: labelColor,
+              fontSize: 11,
+              formatter: name,
+              backgroundColor: 'rgba(255,255,255,0.8)',
+              borderRadius: 4,
+              padding: [3, 6]
+            } },
+          { yAxis: v2 }
+        ];
+      }
+      return [
+        zone(values.high, Y_MAX, 'rgba(142, 68, 173, 0.12)', '机会区', '#8E44AD'),
+        zone(values.fair_high, values.high, 'rgba(22, 160, 133, 0.10)', '偏高', '#16A085'),
+        zone(values.low, values.fair_high, 'rgba(149, 165, 166, 0.10)', '合理', '#7f8c8d'),
+        zone(values.danger, values.low, 'rgba(41, 128, 185, 0.10)', '偏低', '#2980B9'),
+        zone(Y_MIN, values.danger, 'rgba(211, 84, 0, 0.12)', '危险区', '#D35400')
+      ];
+    }
+
+    // 表头“股息率状态”随缩放更新：取当前可见窗口最后一个数据点的分位判定
+    // （阈值线为固定值，无需重算，故不再防抖）
+    function updateStatusFromWindow() {
+      var win = getWindowIndexes();
+      updateStatusCard(zoneOf(data[win[1]].yield_percentile));
+    }
+
+    /* ---------- 上图：指数点位主趋势通道 ---------- */
+    var legendData = ['收盘点位', '回归中轨', '+1σ 上轨', '-1σ 下轨'];
+    if (has2Sigma) legendData.push('+2σ 上轨', '-2σ 下轨');
+
+    // 通道填充系列（4 个区间，指定四色，避免与紫色阴影混淆）
+    function band(name, bandData, fillColor) {
+      return {
+        name: name,
+        type: 'line', data: bandData, stack: 'regband',
+        showSymbol: false, large: true, progressive: 500, silent: true,
+        lineStyle: { opacity: 0 }, itemStyle: { opacity: 0 },
+        areaStyle: fillColor ? { color: fillColor } : undefined,
+        emphasis: { disabled: true }, tooltip: { show: false }, z: 1
+      };
+    }
+    var bandSeries = [];
+    if (has2Sigma) {
+      bandSeries.push(band('bandBase', regLower2, null));
+      bandSeries.push(band('bandOuterLower', bandOuterLower, 'rgba(142, 68, 173, 0.20)'));  // -2σ ~ -1σ 紫罗兰
+      bandSeries.push(band('bandInnerLower', bandInnerLower, 'rgba(22, 160, 133, 0.18)'));  // -1σ ~ 中轨 翡翠青绿
+      bandSeries.push(band('bandInnerUpper', bandInnerUpper, 'rgba(41, 128, 185, 0.18)'));  // 中轨 ~ +1σ 深海蓝
+      bandSeries.push(band('bandOuterUpper', bandOuterUpper, 'rgba(211, 84, 0, 0.20)'));    // +1σ ~ +2σ 深橙红
+    } else {
+      bandSeries.push(band('bandBase', regLower, null));
+      bandSeries.push(band('bandInnerLower', bandInnerLower, 'rgba(22, 160, 133, 0.18)'));
+      bandSeries.push(band('bandInnerUpper', bandInnerUpper, 'rgba(41, 128, 185, 0.18)'));
+    }
+
+    // 通道边界线：对应色 2px 实线（不用 sampling——LTTB 重采样会导致悬停索引错位闪烁，改用渐进渲染保性能）
+    function boundaryLine(name, lineData, color) {
+      return {
+        name: name,
+        type: 'line', data: lineData,
+        showSymbol: false,   // showSymbol:false 时悬停仍显示圆点，且不常驻
+        symbol: 'circle',
+        symbolSize: 6,
+        large: false,
+        progressive: 200,
+        progressiveThreshold: 3000,
+        z: 3,
+        lineStyle: { color: color, width: 2, type: 'solid' },
+        itemStyle: hoverPointStyle
+      };
+    }
+
+    var mainSeries = [{
+      name: '收盘点位',
+      type: 'line',
+      data: closes,
+      showSymbol: false,   // 非 large 模式下悬停自动显示圆点
+      symbol: 'circle',
+      symbolSize: 6,
+      large: false,
+      progressive: 200,
+      progressiveThreshold: 3000,
+      emphasis: { focus: 'series', disabled: false },
+      z: 5,
+      lineStyle: { color: '#1e3a8a', width: 1.6 },
+      itemStyle: hoverPointStyle,
+      markArea: {
+        silent: true,
+        itemStyle: { color: 'rgba(147, 112, 219, 0.25)' },
+        data: shadowAreas
+      }
+    }].concat(bandSeries, [
+      boundaryLine('回归中轨', regMid, '#16A085'),
+      boundaryLine('+1σ 上轨', regUpper, '#2980B9'),
+      boundaryLine('-1σ 下轨', regLower, '#8E44AD')
+    ]);
+
+    if (has2Sigma) {
+      mainSeries.push(
+        boundaryLine('+2σ 上轨', regUpper2, '#D35400'),
+        boundaryLine('-2σ 下轨', regLower2, '#8E44AD')
+      );
+    }
+
+    chartMain.setOption({
+      animation: false,
+      grid: { left: 70, right: '10%', top: 30, bottom: 60 },
+      legend: {
+        top: 0,
+        data: legendData,
+        textStyle: { fontSize: 12, color: '#6b7280' }
+      },
+      tooltip: {
+        trigger: 'axis',
+        triggerOn: 'none',   // 禁用自动触发，改由代码手动 dispatchAction('showTip') 接管（防闪烁）
+        transitionDuration: 0,   // 提示框无过渡动画，跟随不抖动
+        axisPointer: { type: 'cross', snap: true },   // snap 吸附最近数据点，减少抖动
+        formatter: function (params) {
+          var idx = params[0].dataIndex;
+          var d = data[idx];
+          var devPct = (d.close / d.reg_mid - 1) * 100;
+          var devTxt = (devPct >= 0 ? '+' : '') + devPct.toFixed(1) + '%（' +
+            (devPct >= 0 ? '高于' : '低于') + '中轨）';
+          var html = '<b>' + d.date + '</b><br/>';
+          html += '收盘点位：' + fmt(d.close, 2) + '<br/>';
+          html += '相对中轨偏离：' + devTxt + '<br/>';
+          html += 'σ 偏移：' + fmt(d.sigma_offset, 4) + '<br/>';
+          html += '股息率：' + fmt(d.dividend_yield_ttm, 2) + '%<br/>';
+          html += '当前分位：' + fmt(d.yield_percentile, 2) + '%，处于【' + zoneOf(d.yield_percentile) + '】';
+          return html;
+        }
+      },
+      xAxis: {
+        type: 'category',
+        data: dates,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#d1d5db' } },
+        axisLabel: { color: '#6b7280' }
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        name: '指数点位',
+        nameTextStyle: { color: '#9ca3af' },
+        splitLine: { lineStyle: { color: '#f3f4f6' } },
+        axisLabel: { color: '#6b7280' }
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, minSpan: 5, zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        {
+          type: 'slider', xAxisIndex: 0, minSpan: 5, height: 20, bottom: 12,
+          borderColor: '#e5e7eb', fillerColor: 'rgba(37,99,235,0.08)'
+        }
+      ],
+      series: mainSeries
+    });
+
+    /* ---------- 下图：股息率历史曲线 + 动态分位色块 ---------- */
+    chartYield.setOption({
+      animation: false,
+      grid: { left: 70, right: '10%', top: 30, bottom: 60 },
+      legend: {
+        top: 0,
+        data: ['指数 TTM 股息率'],
+        textStyle: { fontSize: 12, color: '#6b7280' }
+      },
+      tooltip: {
+        trigger: 'axis',
+        triggerOn: 'none',   // 禁用自动触发，改由代码手动 dispatchAction('showTip') 接管（防闪烁）
+        transitionDuration: 0,   // 提示框无过渡动画，跟随不抖动
+        axisPointer: { type: 'cross', snap: true },   // snap 吸附最近数据点，减少抖动
+        formatter: function (params) {
+          var idx = params[0].dataIndex;
+          var d = data[idx];
+          var html = '<b>' + d.date + '</b><br/>';
+          html += '股息率：' + fmt(d.dividend_yield_ttm, 2) + '%<br/>';
+          // 所处区间直接按 data[].yield_percentile 与 25/40/60/75 比较（与上图判定逻辑一致）
+          html += '当前分位：' + fmt(d.yield_percentile, 2) + '%，处于【' + zoneOf(d.yield_percentile) + '】<br/>';
+          html += '<span style="color:#9ca3af">── 分位线（高→低，固定值）──</span><br/>';
+          ['high', 'fair_high', 'low', 'danger'].forEach(function (key) {
+            html += '<span style="color:' + ylStyles[key].color + '">' + ylStyles[key].name +
+              '：' + Number(fixedYieldValues[key]).toFixed(2) + '%</span><br/>';
+          });
+          return html;
+        }
+      },
+      xAxis: {
+        type: 'category',
+        data: dates,
+        boundaryGap: false,
+        axisLine: { lineStyle: { color: '#d1d5db' } },
+        axisLabel: { color: '#6b7280' }
+      },
+      yAxis: {
+        type: 'value',
+        scale: true,
+        name: '股息率（%）',
+        nameTextStyle: { color: '#9ca3af' },
+        splitLine: { lineStyle: { color: '#f3f4f6' } },
+        axisLabel: { color: '#6b7280', formatter: '{value}%' }
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, minSpan: 5 },
+        {
+          type: 'slider', xAxisIndex: 0, minSpan: 5, height: 20, bottom: 12,
+          borderColor: '#e5e7eb', fillerColor: 'rgba(5,150,105,0.08)'
+        }
+      ],
+      graphic: [{
+        // “最新股息率”标签：固定在图表左上角（Y 轴旁空白区），不遮挡任何曲线
+        type: 'text',
+        left: 72,
+        top: 6,
+        silent: true,
+        style: {
+          text: '最新股息率：' + Number(latestYield).toFixed(2) + '%',
+          fontSize: 12,
+          fill: '#374151',
+          backgroundColor: 'rgba(255,255,255,0.85)',
+          padding: [3, 6],
+          borderRadius: 4
+        }
+      }],
+      series: [
+        {
+          name: '指数 TTM 股息率',
+          type: 'line',
+          data: yields,
+          showSymbol: false,       // false 时悬停才显示圆点；true 会让 2000+ 个白点常驻盖住绿线
+          symbol: 'circle',
+          symbolSize: 6,
+          large: false,            // large 模式会禁用悬停符号，必须关闭（十字准线小白点的根因）
+          progressive: 200,
+          progressiveThreshold: 3000,
+          emphasis: { focus: 'series', disabled: false },
+          z: 5,   // 主曲线置于色块之上
+          lineStyle: { color: '#059669', width: 1.6 },
+          itemStyle: hoverPointStyle,
+          markLine: {
+            silent: true,
+            animation: false,
+            data: makeLatestLine()
+          },
+          markArea: {
+            silent: true,
+            animation: false,
+            data: makeZones(fixedYieldValues)   // 固定值，不随缩放改变
+          }
+        }
+      ].concat(thSeriesOrder.map(function (key) {
+        return makeThresholdSeries(key, fixedYieldValues[key]);
+      }))
+    });
+
+    /* ---------- 手动联动（V6：放弃 axisPointer.link / connect 的 tooltip 自动联动，防闪烁） ---------- */
+    var lastTipIndex = -1;
+
+    function showTipAt(chart, xIndex) {
+      if (xIndex === lastTipIndex) return;   // 索引未变化不重复派发，杜绝闪烁
+      lastTipIndex = xIndex;
+      chartMain.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: xIndex });
+      chartYield.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: xIndex });
+    }
+    function hideTipAll() {
+      lastTipIndex = -1;
+      chartMain.dispatchAction({ type: 'hideTip' });
+      chartYield.dispatchAction({ type: 'hideTip' });
+    }
+    function bindManualLink(chart) {
+      var lastMove = 0;
+      chart.getZr().on('mousemove', function (params) {
+        var pointInPixel = [params.offsetX, params.offsetY];
+        if (chart.containPixel('grid', pointInPixel)) {
+          var now = Date.now();
+          if (now - lastMove < 60) return;   // 60ms 节流（仅对显示分支），避免高频派发导致闪烁
+          lastMove = now;
+          var pointInGrid = chart.convertFromPixel({ seriesIndex: 0 }, pointInPixel);
+          var xIndex = Math.round(pointInGrid[0]);
+          xIndex = Math.max(0, Math.min(xIndex, data.length - 1));
+          showTipAt(chart, xIndex);
+        } else {
+          hideTipAll();   // 移出绘图区立即隐藏，不节流
+        }
+      });
+      chart.getZr().on('globalout', hideTipAll);
+    }
+    bindManualLink(chartMain);
+    bindManualLink(chartYield);
+
+    /* dataZoom 手动互同步（不再使用 echarts.connect；percent 形式双向派发，带防循环锁） */
+    var zoomSyncing = false;
+    chartMain.on('datazoom', function () {
+      if (zoomSyncing) return;
+      zoomSyncing = true;
+      var dz = chartMain.getOption().dataZoom[0];
+      chartYield.dispatchAction({ type: 'dataZoom', start: dz.start, end: dz.end });
+      zoomSyncing = false;
+      updateStatusFromWindow();
+    });
+    chartYield.on('datazoom', function () {
+      if (zoomSyncing) return;
+      zoomSyncing = true;
+      var dz = chartYield.getOption().dataZoom[0];
+      chartMain.dispatchAction({ type: 'dataZoom', start: dz.start, end: dz.end });
+      zoomSyncing = false;
+      updateStatusFromWindow();
+    });
+
+    chartMain.hideLoading();
+    chartYield.hideLoading();
+
+    /* ---------- 时间范围按钮 ---------- */
+    var latestDate = meta.latest.date;
+
+    // category 轴日期 → 数据索引（二分查找第一个 >= dateStr 的位置，避免绝对日期对不上类目而失效）
+    function dateToIndex(dateStr) {
+      var n = dates.length;
+      if (dateStr <= dates[0]) return 0;
+      if (dateStr >= dates[n - 1]) return n - 1;
+      var lo = 0, hi = n - 1, ans = n - 1;
+      while (lo <= hi) {
+        var mid = (lo + hi) >> 1;
+        if (dates[mid] < dateStr) { lo = mid + 1; } else { ans = mid; hi = mid - 1; }
+      }
+      return ans;
+    }
+
+    // 从 dataZoom 当前状态解析可见窗口索引（兼容 start/end 百分比与 startValue/endValue 两种写法）
+    function getWindowIndexes() {
+      var dz = chartYield.getOption().dataZoom[0];
+      var n = yields.length;
+      var iStart, iEnd;
+      if (dz.startValue !== undefined && dz.startValue !== null) {
+        iStart = (typeof dz.startValue === 'number') ? Math.round(dz.startValue) : dateToIndex(String(dz.startValue));
+        iEnd = (dz.endValue !== undefined && dz.endValue !== null)
+          ? ((typeof dz.endValue === 'number') ? Math.round(dz.endValue) : dateToIndex(String(dz.endValue)))
+          : n - 1;
+      } else {
+        var s = (typeof dz.start === 'number') ? dz.start : 0;
+        var e = (typeof dz.end === 'number') ? dz.end : 100;
+        iStart = Math.max(0, Math.floor(s / 100 * (n - 1)));
+        iEnd = Math.min(n - 1, Math.ceil(e / 100 * (n - 1)));
+      }
+      iStart = Math.max(0, Math.min(iStart, n - 2));
+      iEnd = Math.max(iStart + 1, Math.min(iEnd, n - 1));
+      return [iStart, iEnd];
+    }
+
+    var buttons = document.querySelectorAll('.range-btn');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        buttons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var years = parseInt(btn.getAttribute('data-years'), 10);
+        // 以 meta.latest.date 为基准减 N 年（Date 对象自动处理闰年/月末进位），再吸附到最近的数据索引
+        var startIdx;
+        if (years === 0) {
+          startIdx = 0;
+        } else {
+          var parts = latestDate.split('-');
+          var base = new Date(parseInt(parts[0], 10) - years, parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          var startStr = base.getFullYear() + '-' +
+            ('0' + (base.getMonth() + 1)).slice(-2) + '-' +
+            ('0' + base.getDate()).slice(-2);
+          startIdx = dateToIndex(startStr);
+        }
+        var endIdx = dates.length - 1;
+        // category 轴统一用索引形式的 startValue/endValue，不与 start/end 百分比混用
+        chartMain.dispatchAction({ type: 'dataZoom', startValue: startIdx, endValue: endIdx });
+        chartYield.dispatchAction({ type: 'dataZoom', startValue: startIdx, endValue: endIdx });
+        updateStatusFromWindow();
+      });
+    });
+
+    window.addEventListener('resize', function () {
+      chartMain.resize();
+      chartYield.resize();
+    });
+
+    // 初始状态：按最新数据点的分位判定（与 tooltip 同一口径）
+    updateStatusCard(zoneOf(data[data.length - 1].yield_percentile));
+  }
+
+  /* ---------- 指标卡片渲染（状态卡片由 updateStatusCard 动态维护） ---------- */
+  function renderCards(meta) {
+    var latest = meta.latest;
+    var p = latest.yield_percentile;
+
+    var status = zoneOf(p);   // 初始值，render 末尾会按同一口径再校准一次
+
+    var cards = [
+      { label: '最新日期', value: latest.date, cls: '', id: '' },
+      { label: '最新点位', value: fmt(latest.close, 2), cls: '', id: '' },
+      { label: '股息率（TTM）', value: fmt(latest.dividend_yield_ttm, 2) + '%', cls: '', id: '' },
+      { label: '当前分位', value: fmt(p, 2) + '%', cls: '', id: '' },
+      { label: '股息率状态', value: status, cls: statusClassMap[status], id: 'statusValue' }
+    ];
+
+    document.getElementById('cards').innerHTML = cards.map(function (c) {
+      return '<div class="card"><div class="label">' + c.label + '</div>' +
+        '<div class="value ' + c.cls + '"' + (c.id ? ' id="' + c.id + '"' : '') + '>' + c.value + '</div></div>';
+    }).join('');
+  }
+
+  /* ---------- 工具函数 ---------- */
+  function fmt(v, digits) {
+    if (v === null || v === undefined || isNaN(v)) return '--';
+    return Number(v).toLocaleString('zh-CN', {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    });
+  }
+})();
+</script>
+</body>
+</html>
